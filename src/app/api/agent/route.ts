@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { runChat } from "@/lib/agent/run";
 import { ndjson } from "@/lib/agent/stream";
+import { takeAgentQuota } from "@/lib/repo";
 import { isUUID } from "@/lib/validate";
 import type { AgentScope, ChatTurn } from "@/lib/types";
 
@@ -32,6 +33,10 @@ export async function POST(req: Request) {
   if (s?.type === "space" && isUUID(s.spaceId)) scope = { type: "space", spaceId: s.spaceId };
   else if (s?.type === "all") scope = { type: "all" };
   else return NextResponse.json({ error: "חסרה בחירת סביבת עבודה" }, { status: 400 });
+
+  if (!(await takeAgentQuota(Number(process.env.AGENT_HOURLY_LIMIT) || 60))) {
+    return NextResponse.json({ error: "הגעתם למגבלת השימוש בסוכן לשעה האחרונה. נסו שוב בעוד קצת." }, { status: 429 });
+  }
 
   return ndjson(runChat(messages, scope));
 }

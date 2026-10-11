@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { CheckSquare, LayoutDashboard, LogOut, Moon, Plus, Sun } from "lucide-react";
+import { NotificationsButton } from "./notifications";
 import { AppProvider, useApp } from "./app-context";
 import { ChatWidget } from "./chat-widget";
 import { SpaceModal } from "./space-modal";
@@ -80,6 +81,7 @@ function TopNav({ showLogout }: { showLogout: boolean }) {
         </nav>
 
         <div className="topnav-actions">
+          <NotificationsButton />
           <ThemeToggle />
           {showLogout && (
             <button className="icon-btn" onClick={logout} aria-label="יציאה" title="יציאה">

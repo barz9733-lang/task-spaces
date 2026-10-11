@@ -8,6 +8,8 @@ export const metadata: Metadata = {
   title: "משימות — מרחבי עבודה עם סוכן חכם",
   description: "מערכת אישית לניהול משימות במרחבים, עם סוכן AI מובנה",
   robots: { index: false, follow: false },
+  icons: { apple: "/icons/192" },
+  appleWebApp: { capable: true, title: "משימות", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {

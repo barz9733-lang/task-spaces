@@ -203,3 +203,41 @@ export async function claimPending(id: string): Promise<unknown | null> {
   );
   return rows[0]?.payload ?? null;
 }
+
+/* ---------------- push subscriptions ---------------- */
+
+export interface PushSub {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+}
+
+export async function savePushSub(sub: PushSub): Promise<void> {
+  await query(
+    `INSERT INTO push_subscriptions (endpoint, p256dh, auth) VALUES ($1, $2, $3)
+     ON CONFLICT (endpoint) DO UPDATE SET p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth`,
+    [sub.endpoint, sub.p256dh, sub.auth],
+  );
+}
+
+export async function deletePushSub(endpoint: string): Promise<void> {
+  await query(`DELETE FROM push_subscriptions WHERE endpoint = $1`, [endpoint]);
+}
+
+export async function listPushSubs(): Promise<PushSub[]> {
+  const rows = await query<Row>(`SELECT endpoint, p256dh, auth FROM push_subscriptions`);
+  return rows.map((r) => ({ endpoint: String(r.endpoint), p256dh: String(r.p256dh), auth: String(r.auth) }));
+}
+
+/* ---------------- agent usage limit ---------------- */
+
+/** Records one agent request; returns false when the hourly limit is exceeded. */
+export async function takeAgentQuota(limitPerHour: number): Promise<boolean> {
+  const rows = await query<Row>(
+    `SELECT count(*)::int AS n FROM agent_usage WHERE created_at > now() - interval '1 hour'`,
+  );
+  if (Number(rows[0]?.n ?? 0) >= limitPerHour) return false;
+  await query(`INSERT INTO agent_usage DEFAULT VALUES`);
+  await query(`DELETE FROM agent_usage WHERE created_at < now() - interval '2 days'`);
+  return true;
+}

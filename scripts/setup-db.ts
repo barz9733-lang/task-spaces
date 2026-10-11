@@ -44,6 +44,17 @@ const SCHEMA = [
      key text PRIMARY KEY,
      value jsonb
    )`,
+  `CREATE TABLE IF NOT EXISTS push_subscriptions (
+     endpoint text PRIMARY KEY,
+     p256dh text NOT NULL,
+     auth text NOT NULL,
+     created_at timestamptz NOT NULL DEFAULT now()
+   )`,
+  `CREATE TABLE IF NOT EXISTS agent_usage (
+     id bigserial PRIMARY KEY,
+     created_at timestamptz NOT NULL DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS agent_usage_time_idx ON agent_usage(created_at)`,
   `CREATE TABLE IF NOT EXISTS agent_pending (
      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
      payload jsonb NOT NULL,

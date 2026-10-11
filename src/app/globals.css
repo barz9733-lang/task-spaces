@@ -2361,3 +2361,44 @@ textarea.input {
     transition: none !important;
   }
 }
+
+/* ============ Notifications ============ */
+.notif {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.notif-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.notif-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--good);
+}
+.notif-tip {
+  display: flex;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.notif-tip svg {
+  flex: none;
+  color: var(--accent);
+  margin-top: 2px;
+}
+.notif-tip p {
+  color: var(--text-2);
+  font-size: 13.5px;
+  margin-top: 4px;
+}
+.icon-btn.is-on {
+  color: var(--accent);
+}
