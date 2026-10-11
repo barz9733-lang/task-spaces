@@ -136,8 +136,15 @@ export function AppProvider({ initial, children }: { initial: AppData; children:
         }),
       );
       try {
-        const saved = await api<Task>(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-        setTasks((prev) => prev.map((t) => (t.id === id ? saved : t)));
+        const { spawned, ...saved } = await api<Task & { spawned: Task | null }>(`/api/tasks/${id}`, {
+          method: "PATCH",
+          body: JSON.stringify(patch),
+        });
+        setTasks((prev) => {
+          const next = prev.map((t) => (t.id === id ? (saved as Task) : t));
+          return spawned && !next.some((t) => t.id === spawned.id) ? [...next, spawned] : next;
+        });
+        if (spawned) toast(`נוצרה המשימה הבאה לתאריך ${spawned.due_date?.split("-").reverse().join("/")}`);
       } catch (e) {
         toast((e as Error).message, "error");
         refresh();

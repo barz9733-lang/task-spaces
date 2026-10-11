@@ -13,9 +13,9 @@ export async function PATCH(req: Request, ctx: Ctx) {
     if (!isUUID(id)) throw new ApiError(404, "המשימה לא נמצאה");
     const patch = parseTask(await readJson(req), true);
     if (patch.space_id && !(await spaceExists(patch.space_id))) throw new ApiError(400, "המרחב לא נמצא");
-    const task = await updateTask(id, patch);
+    const { task, spawned } = await updateTask(id, patch);
     if (!task) throw new ApiError(404, "המשימה לא נמצאה");
-    return NextResponse.json(task);
+    return NextResponse.json({ ...task, spawned: spawned[0] ?? null });
   });
 }
 

@@ -5,7 +5,7 @@ import { ChevronDown, ListChecks, Plus } from "lucide-react";
 import { PRIORITIES } from "@/lib/constants";
 import type { Space, Task } from "@/lib/types";
 import { useApp } from "./app-context";
-import { Checkbox, DuePill, EmptyState, StatusTag, byPriorityThenDue } from "./ui";
+import { Checkbox, DuePill, EmptyState, StatusTag, TaskBadges, byPriorityThenDue } from "./ui";
 
 function Row({ task, today }: { task: Task; today: string }) {
   const { updateTask, openTask } = useApp();
@@ -28,6 +28,7 @@ function Row({ task, today }: { task: Task; today: string }) {
         {task.description && <span className="trow-desc">{task.description}</span>}
       </div>
       {task.status !== "new" && !done && <StatusTag status={task.status} />}
+      <TaskBadges task={task} />
       <DuePill task={task} today={today} />
     </li>
   );

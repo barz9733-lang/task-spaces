@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { CalendarDays, Check, X } from "lucide-react";
+import { CalendarDays, Check, ListChecks, Repeat, X } from "lucide-react";
 import { PRIORITY_BY_VALUE, STATUS_BY_VALUE } from "@/lib/constants";
 import { diffDays, relativeLabel } from "@/lib/dates";
 import type { Priority, Space, Status, Task } from "@/lib/types";
@@ -189,5 +189,27 @@ export function byPriorityThenDue(a: Task, b: Task): number {
     PRIORITY_BY_VALUE[b.priority].rank - PRIORITY_BY_VALUE[a.priority].rank ||
     (a.due_date ?? "9999-99-99").localeCompare(b.due_date ?? "9999-99-99") ||
     a.created_at.localeCompare(b.created_at)
+  );
+}
+
+/** Small badges: repeats / subtasks progress */
+export function TaskBadges({ task }: { task: Pick<Task, "recurrence" | "subtasks"> }) {
+  const subs = task.subtasks ?? [];
+  if (!task.recurrence && subs.length === 0) return null;
+  const done = subs.filter((s) => s.done).length;
+  return (
+    <>
+      {subs.length > 0 && (
+        <span className="tbadge" title="תת-משימות">
+          <ListChecks size={12} />
+          {done}/{subs.length}
+        </span>
+      )}
+      {task.recurrence && (
+        <span className="tbadge" title="משימה חוזרת">
+          <Repeat size={12} />
+        </span>
+      )}
+    </>
   );
 }

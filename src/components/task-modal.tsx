@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Trash2 } from "lucide-react";
-import { PRIORITIES, STATUSES } from "@/lib/constants";
+import { Plus, Trash2, X } from "lucide-react";
+import { PRIORITIES, RECURRENCES, STATUSES } from "@/lib/constants";
 import { addDays } from "@/lib/dates";
-import type { Priority, Status, Task } from "@/lib/types";
+import type { Priority, Recurrence, Status, Subtask, Task } from "@/lib/types";
 import { useApp } from "./app-context";
-import { Modal, Segmented } from "./ui";
+import { Checkbox, Modal, Segmented } from "./ui";
 
 export function TaskModal() {
   const { taskEditor, closeTask, tasks, spaces, today, createTask, updateTask, deleteTask } = useApp();
@@ -42,6 +42,9 @@ function TaskForm({ existing, draft, closeTask, spaces, today, createTask, updat
   const [status, setStatus] = useState<Status>(init.status ?? "new");
   const [due, setDue] = useState<string>(init.due_date ?? "");
   const [spaceId, setSpaceId] = useState<string>(init.space_id ?? spaces[0]?.id ?? "");
+  const [recurrence, setRecurrence] = useState<Recurrence | "none">(init.recurrence ?? "none");
+  const [subtasks, setSubtasks] = useState<Subtask[]>(init.subtasks ?? []);
+  const [newSub, setNewSub] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState("");
@@ -63,6 +66,12 @@ function TaskForm({ existing, draft, closeTask, spaces, today, createTask, updat
       setError("צריך לבחור מרחב");
       return;
     }
+    if (recurrence !== "none" && !due) {
+      setError("משימה חוזרת צריכה תאריך יעד");
+      return;
+    }
+    const pendingSub = newSub.trim();
+    const finalSubs = pendingSub ? [...subtasks, { id: crypto.randomUUID(), text: pendingSub, done: false }] : subtasks;
     setSaving(true);
     const payload = {
       title: title.trim(),
@@ -71,6 +80,8 @@ function TaskForm({ existing, draft, closeTask, spaces, today, createTask, updat
       status,
       due_date: due || null,
       space_id: spaceId,
+      recurrence: recurrence === "none" ? null : recurrence,
+      subtasks: finalSubs,
     };
     if (existing) {
       await updateTask(existing.id, payload);
@@ -203,6 +214,82 @@ function TaskForm({ existing, draft, closeTask, spaces, today, createTask, updat
               </select>
             </div>
           </label>
+        </div>
+
+        <div className="field">
+          <span>חזרה</span>
+          <Segmented<Recurrence | "none">
+            ariaLabel="חזרה"
+            value={recurrence}
+            onChange={(v) => {
+              setRecurrence(v);
+              setError("");
+            }}
+            options={[{ value: "none", label: "ללא" }, ...RECURRENCES.map((r) => ({ value: r.value, label: r.label }))]}
+          />
+          {recurrence !== "none" && <small className="muted">כשתסמנו את המשימה כהושלמה תיווצר אוטומטית המשימה הבאה.</small>}
+        </div>
+
+        <div className="field">
+          <span>
+            תת-משימות
+            {subtasks.length > 0 && ` (${subtasks.filter((s) => s.done).length}/${subtasks.length})`}
+          </span>
+          <ul className="subtasks">
+            {subtasks.map((s) => (
+              <li key={s.id} className={s.done ? "is-done" : ""}>
+                <Checkbox
+                  checked={s.done}
+                  label={`סימון "${s.text}"`}
+                  onChange={(v) => setSubtasks((list) => list.map((x) => (x.id === s.id ? { ...x, done: v } : x)))}
+                />
+                <span>{s.text}</span>
+                <button
+                  type="button"
+                  className="icon-btn icon-btn-sm"
+                  aria-label="הסרת תת-משימה"
+                  onClick={() => setSubtasks((list) => list.filter((x) => x.id !== s.id))}
+                >
+                  <X size={14} />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="subtask-add">
+            <input
+              className="input"
+              value={newSub}
+              maxLength={200}
+              placeholder="הוסיפו שלב ולחצו Enter"
+              onChange={(e) => setNewSub(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const text = newSub.trim();
+                  if (text && subtasks.length < 50) {
+                    setSubtasks((list) => [...list, { id: crypto.randomUUID(), text, done: false }]);
+                    setNewSub("");
+                  }
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              disabled={!newSub.trim()}
+              onClick={() => {
+                const text = newSub.trim();
+                if (text) {
+                  setSubtasks((list) => [...list, { id: crypto.randomUUID(), text, done: false }]);
+                  setNewSub("");
+                }
+              }}
+            >
+              <Plus size={14} />
+              הוספה
+            </button>
+          </div>
         </div>
 
         <label className="field">

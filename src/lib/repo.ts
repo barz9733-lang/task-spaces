@@ -1,8 +1,9 @@
 import { query } from "./db";
-import type { AppData, Priority, Settings, Space, Status, Task, TaskInput, ViewType } from "./types";
+import { nextOccurrence, todayISO } from "./dates";
+import type { AppData, Priority, Recurrence, Settings, Space, Status, Subtask, Task, TaskInput, ViewType } from "./types";
 
 const TASK_COLS = `id, space_id, title, description, priority, status, due_date::text AS due_date,
-  completed_at, created_at, updated_at`;
+  completed_at, recurrence, subtasks, created_at, updated_at`;
 
 type Row = Record<string, unknown>;
 
@@ -21,6 +22,8 @@ function mapTask(r: Row): Task {
     status: r.status as Status,
     due_date: r.due_date ? String(r.due_date) : null,
     completed_at: iso(r.completed_at),
+    recurrence: (r.recurrence as Recurrence | null) ?? null,
+    subtasks: Array.isArray(r.subtasks) ? (r.subtasks as Subtask[]) : [],
     created_at: iso(r.created_at) as string,
     updated_at: iso(r.updated_at) as string,
   };
@@ -106,8 +109,8 @@ export async function deleteSpace(id: string): Promise<boolean> {
 export async function createTask(input: TaskInput): Promise<Task> {
   const status = input.status ?? "new";
   const rows = await query<Row>(
-    `INSERT INTO tasks (space_id, title, description, priority, status, due_date, completed_at)
-     VALUES ($1, $2, $3, $4, $5, $6::date, CASE WHEN $5 = 'done' THEN now() ELSE NULL END)
+    `INSERT INTO tasks (space_id, title, description, priority, status, due_date, completed_at, recurrence, subtasks)
+     VALUES ($1, $2, $3, $4, $5, $6::date, CASE WHEN $5 = 'done' THEN now() ELSE NULL END, $7, $8::jsonb)
      RETURNING ${TASK_COLS}`,
     [
       input.space_id,
@@ -116,6 +119,8 @@ export async function createTask(input: TaskInput): Promise<Task> {
       input.priority ?? "medium",
       status,
       input.due_date ?? null,
+      input.recurrence ?? null,
+      JSON.stringify(input.subtasks ?? []),
     ],
   );
   return mapTask(rows[0]);
@@ -128,8 +133,13 @@ export async function createTasks(inputs: TaskInput[]): Promise<Task[]> {
 }
 
 /** Fields present in `patch` (even null for due_date) are updated; the rest are left untouched. */
-export async function updateTasks(ids: string[], patch: Partial<TaskInput>): Promise<Task[]> {
-  if (ids.length === 0) return [];
+export async function updateTasks(ids: string[], patch: Partial<TaskInput>): Promise<{ tasks: Task[]; spawned: Task[] }> {
+  if (ids.length === 0) return { tasks: [], spawned: [] };
+  // tasks that are about to become done (to spawn the next occurrence of recurring ones)
+  const becomingDone =
+    patch.status === "done"
+      ? (await query<Row>(`SELECT ${TASK_COLS} FROM tasks WHERE id = ANY($1::uuid[]) AND status <> 'done' AND recurrence IS NOT NULL`, [ids])).map(mapTask)
+      : [];
   const sets: string[] = [];
   const params: unknown[] = [ids];
   const add = (col: string, val: unknown, cast = "") => {
@@ -140,6 +150,8 @@ export async function updateTasks(ids: string[], patch: Partial<TaskInput>): Pro
   if (patch.description !== undefined) add("description", patch.description);
   if (patch.priority !== undefined) add("priority", patch.priority);
   if (patch.space_id !== undefined) add("space_id", patch.space_id, "::uuid");
+  if ("recurrence" in patch) add("recurrence", patch.recurrence ?? null);
+  if (patch.subtasks !== undefined) add("subtasks", JSON.stringify(patch.subtasks), "::jsonb");
   if ("due_date" in patch) add("due_date", patch.due_date ?? null, "::date");
   if (patch.status !== undefined) {
     add("status", patch.status);
@@ -151,19 +163,36 @@ export async function updateTasks(ids: string[], patch: Partial<TaskInput>): Pro
   }
   if (sets.length === 0) {
     const rows = await query<Row>(`SELECT ${TASK_COLS} FROM tasks WHERE id = ANY($1::uuid[])`, [ids]);
-    return rows.map(mapTask);
+    return { tasks: rows.map(mapTask), spawned: [] };
   }
   sets.push(`updated_at = now()`);
   const rows = await query<Row>(
     `UPDATE tasks SET ${sets.join(", ")} WHERE id = ANY($1::uuid[]) RETURNING ${TASK_COLS}`,
     params,
   );
-  return rows.map(mapTask);
+  const spawned: Task[] = [];
+  const today = todayISO();
+  for (const t of becomingDone) {
+    if (!t.recurrence || !t.due_date) continue;
+    spawned.push(
+      await createTask({
+        space_id: t.space_id,
+        title: t.title,
+        description: t.description,
+        priority: t.priority,
+        status: "new",
+        due_date: nextOccurrence(t.due_date, t.recurrence, today),
+        recurrence: t.recurrence,
+        subtasks: t.subtasks.map((s) => ({ ...s, done: false })),
+      }),
+    );
+  }
+  return { tasks: rows.map(mapTask), spawned };
 }
 
-export async function updateTask(id: string, patch: Partial<TaskInput>): Promise<Task | null> {
-  const rows = await updateTasks([id], patch);
-  return rows[0] ?? null;
+export async function updateTask(id: string, patch: Partial<TaskInput>): Promise<{ task: Task | null; spawned: Task[] }> {
+  const r = await updateTasks([id], patch);
+  return { task: r.tasks[0] ?? null, spawned: r.spawned };
 }
 
 export async function deleteTasks(ids: string[]): Promise<number> {
@@ -234,10 +263,38 @@ export async function listPushSubs(): Promise<PushSub[]> {
 /** Records one agent request; returns false when the hourly limit is exceeded. */
 export async function takeAgentQuota(limitPerHour: number): Promise<boolean> {
   const rows = await query<Row>(
-    `SELECT count(*)::int AS n FROM agent_usage WHERE created_at > now() - interval '1 hour'`,
+    `SELECT count(*)::int AS n FROM agent_usage WHERE kind = 'request' AND created_at > now() - interval '1 hour'`,
   );
   if (Number(rows[0]?.n ?? 0) >= limitPerHour) return false;
   await query(`INSERT INTO agent_usage DEFAULT VALUES`);
-  await query(`DELETE FROM agent_usage WHERE created_at < now() - interval '2 days'`);
+  await query(`DELETE FROM agent_usage WHERE created_at < now() - interval '400 days'`);
   return true;
+}
+
+export async function recordTokens(input: number, output: number): Promise<void> {
+  await query(`INSERT INTO agent_usage (kind, input_tokens, output_tokens) VALUES ('tokens', $1, $2)`, [input, output]);
+}
+
+export interface UsageStats {
+  requests: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
+/** Usage since the start of the current month (Israel time) and today. */
+export async function getUsage(): Promise<{ month: UsageStats; today: UsageStats }> {
+  const q = async (since: string): Promise<UsageStats> => {
+    const rows = await query<Row>(
+      `SELECT count(*) FILTER (WHERE kind = 'request')::int AS requests,
+              COALESCE(sum(input_tokens), 0)::bigint AS input_tokens,
+              COALESCE(sum(output_tokens), 0)::bigint AS output_tokens
+       FROM agent_usage WHERE created_at >= $1::timestamptz`,
+      [since],
+    );
+    const r = rows[0] ?? {};
+    return { requests: Number(r.requests ?? 0), input_tokens: Number(r.input_tokens ?? 0), output_tokens: Number(r.output_tokens ?? 0) };
+  };
+  const today = todayISO();
+  const tz = "T00:00:00+03:00"; // close enough for a usage counter
+  return { month: await q(today.slice(0, 7) + "-01" + tz), today: await q(today + tz) };
 }

@@ -1,4 +1,12 @@
-import type { Priority, Status, ViewType } from "./types";
+import type { Priority, Recurrence, Status, ViewType } from "./types";
+
+export const RECURRENCES: { value: Recurrence; label: string }[] = [
+  { value: "daily", label: "כל יום" },
+  { value: "weekly", label: "כל שבוע" },
+  { value: "monthly", label: "כל חודש" },
+  { value: "yearly", label: "כל שנה" },
+];
+export const RECURRENCE_VALUES = RECURRENCES.map((r) => r.value);
 
 export const PRIORITIES: { value: Priority; label: string; color: string; rank: number }[] = [
   { value: "urgent", label: "דחוף", color: "#e5484d", rank: 4 },

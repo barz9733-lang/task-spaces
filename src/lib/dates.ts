@@ -122,3 +122,22 @@ export function isOverdue(due: string | null, status: string, today = todayISO()
 export function isoToLocalDate(ts: string): string {
   return todayISO(new Date(ts));
 }
+
+/** Next occurrence of a recurring task: one step after the due date, never earlier than `today`. */
+export function nextOccurrence(due: string, rec: "daily" | "weekly" | "monthly" | "yearly", today = todayISO()): string {
+  const [y, m, d] = due.split("-").map(Number);
+  const step = (n: number): string => {
+    if (rec === "daily") return addDays(due, n);
+    if (rec === "weekly") return addDays(due, 7 * n);
+    const monthsToAdd = rec === "monthly" ? n : 12 * n;
+    const total = m - 1 + monthsToAdd;
+    const ty = y + Math.floor(total / 12);
+    const tm = ((total % 12) + 12) % 12;
+    const lastDay = new Date(Date.UTC(ty, tm + 1, 0)).getUTCDate();
+    return fromUTC(new Date(Date.UTC(ty, tm, Math.min(d, lastDay))));
+  };
+  let n = 1;
+  let next = step(n);
+  while (next < today && n < 1000) next = step(++n);
+  return next;
+}

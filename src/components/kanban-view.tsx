@@ -18,7 +18,7 @@ import { AlignRight, Plus } from "lucide-react";
 import { PRIORITY_BY_VALUE, STATUSES } from "@/lib/constants";
 import type { Space, Status, Task } from "@/lib/types";
 import { useApp } from "./app-context";
-import { DuePill, PriorityTag, byPriorityThenDue } from "./ui";
+import { DuePill, PriorityTag, TaskBadges, byPriorityThenDue } from "./ui";
 
 function TaskCard({ task, today, onOpen, overlay }: { task: Task; today: string; onOpen?: () => void; overlay?: boolean }) {
   const p = PRIORITY_BY_VALUE[task.priority];
@@ -38,6 +38,7 @@ function TaskCard({ task, today, onOpen, overlay }: { task: Task; today: string;
       <div className="kcard-meta">
         <PriorityTag priority={task.priority} />
         <DuePill task={task} today={today} />
+        <TaskBadges task={task} />
       </div>
     </div>
   );

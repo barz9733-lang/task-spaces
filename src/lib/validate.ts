@@ -1,6 +1,6 @@
-import { PRIORITY_VALUES, STATUS_VALUES, VIEW_VALUES } from "./constants";
+import { PRIORITY_VALUES, RECURRENCE_VALUES, STATUS_VALUES, VIEW_VALUES } from "./constants";
 import { isISODate } from "./dates";
-import type { Priority, Status, TaskInput, ViewType } from "./types";
+import type { Priority, Recurrence, Status, Subtask, TaskInput, ViewType } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -44,6 +44,19 @@ export function parseTask(body: unknown, partial: boolean): Partial<TaskInput> {
     if (b.due_date === null || b.due_date === "") out.due_date = null;
     else if (isISODate(b.due_date)) out.due_date = b.due_date;
     else throw new ApiError(400, "תאריך יעד לא תקין");
+  }
+  if ("recurrence" in b) {
+    if (b.recurrence === null || b.recurrence === "") out.recurrence = null;
+    else if (RECURRENCE_VALUES.includes(b.recurrence as Recurrence)) out.recurrence = b.recurrence as Recurrence;
+    else throw new ApiError(400, "חזרתיות לא תקינה");
+  }
+  if ("subtasks" in b && b.subtasks != null) {
+    if (!Array.isArray(b.subtasks) || b.subtasks.length > 50) throw new ApiError(400, "תת-משימות לא תקינות");
+    out.subtasks = (b.subtasks as Record<string, unknown>[]).map((s): Subtask => {
+      const text = typeof s?.text === "string" ? s.text.trim().slice(0, 200) : "";
+      if (!text) throw new ApiError(400, "תת-משימה ריקה");
+      return { id: typeof s.id === "string" && s.id ? s.id.slice(0, 40) : crypto.randomUUID(), text, done: s.done === true };
+    });
   }
   if ("space_id" in b || !partial) {
     if (!isUUID(b.space_id)) throw new ApiError(400, "מרחב לא תקין");

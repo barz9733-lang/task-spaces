@@ -56,6 +56,7 @@ ${days}
 - עדיפות: נמוכה=low, בינונית=medium, גבוהה=high, דחוף=urgent.
 - סטטוס: חדשה=new, בעבודה=in_progress, בהשהייה=on_hold, הושלמה=done.
 - "באיחור" = תאריך יעד לפני היום ולא הושלמה.
+- משימה חוזרת ("כל חודש", "כל שבוע") נוצרת עם recurrence וחייבת תאריך יעד. כשמסמנים אותה כהושלמה נוצרת אוטומטית המופע הבא שלה.
 - תאריכים אתה מעביר לכלים תמיד בפורמט YYYY-MM-DD. "מחר", "ביום חמישי", "בעוד שבוע" - חשב מהתאריך של היום. "עד ה-10" = ה-10 הקרוב בחודש (החודש הנוכחי אם עוד לא עבר, אחרת הבא).
 
 כללי עבודה:
@@ -82,6 +83,7 @@ interface ResponsesOutputItem {
 }
 interface ResponsesResult {
   id: string;
+  usage?: { input_tokens?: number; output_tokens?: number };
   output: ResponsesOutputItem[];
 }
 
@@ -99,7 +101,13 @@ async function callModel(body: Record<string, unknown>): Promise<ResponsesResult
     console.error("OpenAI error", res.status, detail.slice(0, 500));
     throw new Error(`openai_${res.status}`);
   }
-  return (await res.json()) as ResponsesResult;
+  const json = (await res.json()) as ResponsesResult;
+  try {
+    if (json.usage) await repo.recordTokens(json.usage.input_tokens ?? 0, json.usage.output_tokens ?? 0);
+  } catch (e) {
+    console.error("usage tracking failed", e);
+  }
+  return json;
 }
 
 function outputText(r: ResponsesResult): string {

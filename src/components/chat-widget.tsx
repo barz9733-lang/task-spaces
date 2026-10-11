@@ -64,6 +64,9 @@ function Rich({ text }: { text: string }) {
   return <>{out}</>;
 }
 
+type Usage = { requests: number; input_tokens: number; output_tokens: number };
+const fmtTokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2)}M` : n >= 1000 ? `${Math.round(n / 1000)}K` : String(n));
+
 const SUGGESTIONS_ALL = [
   "מה המשימות הכי חשובות שצריך לתת להן עדיפות?",
   "תדחה את כל מה שבאיחור למחר",
@@ -94,6 +97,15 @@ export function ChatWidget() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [unseen, setUnseen] = useState(false);
+  const [usage, setUsage] = useState<{ month: Usage; today: Usage } | null>(null);
+  const loadUsage = useCallback(async () => {
+    try {
+      const r = await fetch("/api/usage", { cache: "no-store" });
+      if (r.ok) setUsage(await r.json());
+    } catch {
+      /* ignore */
+    }
+  }, []);
   const idRef = useRef(0);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -124,10 +136,11 @@ export function ChatWidget() {
 
   useEffect(() => {
     if (open) {
+      loadUsage();
       setUnseen(false);
       setTimeout(() => inputRef.current?.focus(), 120);
     }
-  }, [open]);
+  }, [open, loadUsage]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -234,6 +247,7 @@ export function ChatWidget() {
     } finally {
       setBusy(false);
       setStatus("");
+      loadUsage();
       if (!open) setUnseen(true);
     }
   }
@@ -476,7 +490,17 @@ export function ChatWidget() {
               <SendHorizontal size={18} />
             </button>
           </form>
-          <div className="chat-foot">הסוכן יבקש אישור לפני מחיקה או שינוי של יותר מ-3 משימות</div>
+          <div className="chat-foot">
+            הסוכן יבקש אישור לפני מחיקה או שינוי של יותר מ-3 משימות
+            {usage && (
+              <span
+                className="chat-usage"
+                title={`קלט ${usage.month.input_tokens.toLocaleString("he-IL")} · פלט ${usage.month.output_tokens.toLocaleString("he-IL")} (החודש)`}
+              >
+                החודש: {usage.month.requests} בקשות · {fmtTokens(usage.month.input_tokens + usage.month.output_tokens)} טוקנים · היום: {usage.today.requests} בקשות
+              </span>
+            )}
+          </div>
         </section>
       )}
     </>

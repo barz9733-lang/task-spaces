@@ -38,6 +38,8 @@ const SCHEMA = [
      created_at timestamptz NOT NULL DEFAULT now(),
      updated_at timestamptz NOT NULL DEFAULT now()
    )`,
+  `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recurrence text CHECK (recurrence IN ('daily','weekly','monthly','yearly'))`,
+  `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS subtasks jsonb NOT NULL DEFAULT '[]'::jsonb`,
   `CREATE INDEX IF NOT EXISTS tasks_space_idx ON tasks(space_id)`,
   `CREATE INDEX IF NOT EXISTS tasks_due_idx ON tasks(due_date)`,
   `CREATE TABLE IF NOT EXISTS settings (
@@ -54,6 +56,9 @@ const SCHEMA = [
      id bigserial PRIMARY KEY,
      created_at timestamptz NOT NULL DEFAULT now()
    )`,
+  `ALTER TABLE agent_usage ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'request'`,
+  `ALTER TABLE agent_usage ADD COLUMN IF NOT EXISTS input_tokens integer NOT NULL DEFAULT 0`,
+  `ALTER TABLE agent_usage ADD COLUMN IF NOT EXISTS output_tokens integer NOT NULL DEFAULT 0`,
   `CREATE INDEX IF NOT EXISTS agent_usage_time_idx ON agent_usage(created_at)`,
   `CREATE TABLE IF NOT EXISTS agent_pending (
      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -1,6 +1,13 @@
 export type Priority = "low" | "medium" | "high" | "urgent";
 export type Status = "new" | "in_progress" | "on_hold" | "done";
 export type ViewType = "kanban" | "todo" | "calendar";
+export type Recurrence = "daily" | "weekly" | "monthly" | "yearly";
+
+export interface Subtask {
+  id: string;
+  text: string;
+  done: boolean;
+}
 
 export interface Space {
   id: string;
@@ -19,6 +26,8 @@ export interface Task {
   status: Status;
   due_date: string | null; // YYYY-MM-DD
   completed_at: string | null;
+  recurrence: Recurrence | null;
+  subtasks: Subtask[];
   created_at: string;
   updated_at: string;
 }
@@ -40,6 +49,8 @@ export type TaskInput = {
   priority?: Priority;
   status?: Status;
   due_date?: string | null;
+  recurrence?: Recurrence | null;
+  subtasks?: Subtask[];
 };
 
 export type TaskPatch = Partial<Omit<TaskInput, never>>;
