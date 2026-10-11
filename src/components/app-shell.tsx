@@ -32,7 +32,7 @@ function ThemeToggle() {
   );
 }
 
-function TopNav() {
+function TopNav({ showLogout }: { showLogout: boolean }) {
   const { spaces, openSpaceEditor } = useApp();
   const pathname = usePathname();
   const router = useRouter();
@@ -81,9 +81,11 @@ function TopNav() {
 
         <div className="topnav-actions">
           <ThemeToggle />
-          <button className="icon-btn" onClick={logout} aria-label="יציאה" title="יציאה">
-            <LogOut size={18} />
-          </button>
+          {showLogout && (
+            <button className="icon-btn" onClick={logout} aria-label="יציאה" title="יציאה">
+              <LogOut size={18} />
+            </button>
+          )}
         </div>
       </div>
     </header>
@@ -103,10 +105,10 @@ function Toasts() {
   );
 }
 
-export function AppShell({ initial, children }: { initial: AppData; children: ReactNode }) {
+export function AppShell({ initial, showLogout, children }: { initial: AppData; showLogout: boolean; children: ReactNode }) {
   return (
     <AppProvider initial={initial}>
-      <TopNav />
+      <TopNav showLogout={showLogout} />
       <main>{children}</main>
       <TaskModal />
       <SpaceModal />

@@ -1,5 +1,8 @@
 /** Session cookie signing — uses Web Crypto so it runs in the Edge middleware and in Node. */
 
+/** Login is only enforced when APP_PASSWORD is set; without it the app is open. */
+export const authEnabled = () => !!process.env.APP_PASSWORD;
+
 export const SESSION_COOKIE = "ts_session";
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
