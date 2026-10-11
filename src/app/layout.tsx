@@ -1,8 +1,8 @@
 import type { Metadata, Viewport } from "next";
-import { Heebo } from "next/font/google";
+import { Rubik } from "next/font/google";
 import "./globals.css";
 
-const heebo = Heebo({ subsets: ["hebrew", "latin"], variable: "--font-heebo", display: "swap" });
+const rubik = Rubik({ subsets: ["hebrew", "latin"], variable: "--font-rubik", display: "swap" });
 
 export const metadata: Metadata = {
   title: "משימות — מרחבי עבודה עם סוכן חכם",
@@ -14,8 +14,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f5f6fa" },
-    { media: "(prefers-color-scheme: dark)", color: "#0f1220" },
+    { media: "(prefers-color-scheme: light)", color: "#f7f1e9" },
+    { media: "(prefers-color-scheme: dark)", color: "#1b1714" },
   ],
 };
 
@@ -23,7 +23,7 @@ const themeScript = `(function(){try{var t=localStorage.getItem('theme');if(!t){
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="he" dir="rtl" className={heebo.variable} suppressHydrationWarning>
+    <html lang="he" dir="rtl" className={rubik.variable} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>

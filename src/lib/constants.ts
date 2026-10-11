@@ -1,17 +1,17 @@
 import type { Priority, Status, ViewType } from "./types";
 
 export const PRIORITIES: { value: Priority; label: string; color: string; rank: number }[] = [
-  { value: "urgent", label: "דחוף", color: "#ef4444", rank: 4 },
-  { value: "high", label: "גבוהה", color: "#f97316", rank: 3 },
-  { value: "medium", label: "בינונית", color: "#eab308", rank: 2 },
-  { value: "low", label: "נמוכה", color: "#3b82f6", rank: 1 },
+  { value: "urgent", label: "דחוף", color: "#e5484d", rank: 4 },
+  { value: "high", label: "גבוהה", color: "#ee8a3c", rank: 3 },
+  { value: "medium", label: "בינונית", color: "#d9a521", rank: 2 },
+  { value: "low", label: "נמוכה", color: "#5b86e5", rank: 1 },
 ];
 
 export const STATUSES: { value: Status; label: string; color: string }[] = [
-  { value: "new", label: "חדשה", color: "#06b6d4" },
-  { value: "in_progress", label: "בעבודה", color: "#8b5cf6" },
-  { value: "on_hold", label: "בהשהייה", color: "#94a3b8" },
-  { value: "done", label: "הושלמה", color: "#22c55e" },
+  { value: "new", label: "חדשה", color: "#7c8cf0" },
+  { value: "in_progress", label: "בעבודה", color: "#b67be0" },
+  { value: "on_hold", label: "בהשהייה", color: "#a0948a" },
+  { value: "done", label: "הושלמה", color: "#55b48a" },
 ];
 
 export const VIEWS: { value: ViewType; label: string; hint: string }[] = [
@@ -21,16 +21,16 @@ export const VIEWS: { value: ViewType; label: string; hint: string }[] = [
 ];
 
 export const SPACE_COLORS = [
-  "#6366f1",
-  "#8b5cf6",
-  "#d946ef",
-  "#ec4899",
-  "#06b6d4",
-  "#0ea5e9",
-  "#14b8a6",
-  "#10b981",
-  "#84cc16",
-  "#a78bfa",
+  "#7c8cf0",
+  "#f0a35b",
+  "#55b48a",
+  "#e6789e",
+  "#b67be0",
+  "#e0613f",
+  "#4fb0c6",
+  "#d9a521",
+  "#8fb35a",
+  "#a0948a",
 ];
 
 export const PRIORITY_BY_VALUE = Object.fromEntries(PRIORITIES.map((p) => [p.value, p])) as Record<
