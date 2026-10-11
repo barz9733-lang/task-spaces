@@ -1,0 +1,10 @@
+import { runChat } from "../src/lib/agent/run.ts";
+import * as repo from "../src/lib/repo.ts";
+const msg = process.argv[2] ?? "מה המשימות הכי חשובות שצריך לתת להן עדיפות?";
+const spaceName = process.argv[3];
+const spaces = await repo.listSpaces();
+const sp = spaceName ? spaces.find((s) => s.name === spaceName) : undefined;
+const scope = sp ? { type: "space" as const, spaceId: sp.id } : { type: "all" as const };
+const t0 = Date.now();
+for await (const ev of runChat([{ role: "user", content: msg }], scope)) console.log(JSON.stringify(ev));
+console.log("ms:", Date.now() - t0);
