@@ -148,7 +148,7 @@ export function Dashboard() {
     <div className="page">
       <div className="page-head">
         <div>
-          <h1>{hello} 👋</h1>
+          <h1>{hello}</h1>
           <p className="muted">{formatLong(today)}</p>
         </div>
       </div>
