@@ -1,0 +1,9 @@
+# Never upload secrets or local-only files to Vercel (the keys live in the Vercel project settings)
+.env
+.env.*
+!.env.example
+.claude
+.next
+node_modules
+deploy.bat
+/*.html

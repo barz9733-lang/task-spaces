@@ -11,12 +11,14 @@ export interface Toast {
   id: number;
   text: string;
   kind: "info" | "error";
+  action?: { label: string; run: () => void };
 }
 
 interface AppCtx {
   spaces: Space[];
   tasks: Task[];
   settings: Settings;
+  archivedCount: number;
   today: string;
   refresh: () => Promise<void>;
   createTask: (input: TaskInput) => Promise<Task | null>;
@@ -33,7 +35,7 @@ interface AppCtx {
   openSpaceEditor: (t: SpaceEditorTarget) => void;
   closeSpaceEditor: () => void;
   toasts: Toast[];
-  toast: (text: string, kind?: Toast["kind"]) => void;
+  toast: (text: string, kind?: Toast["kind"], action?: Toast["action"]) => void;
 }
 
 const Ctx = createContext<AppCtx | null>(null);
@@ -45,11 +47,16 @@ export function useApp(): AppCtx {
 }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      cache: "no-store",
+    });
+  } catch {
+    throw new Error("אין חיבור לאינטרנט. השינוי לא נשמר.");
+  }
   if (res.status === 401) {
     window.location.href = "/login";
     throw new Error("לא מחובר");
@@ -67,6 +74,7 @@ export function AppProvider({ initial, children }: { initial: AppData; children:
   const [spaces, setSpaces] = useState<Space[]>(initial.spaces);
   const [tasks, setTasks] = useState<Task[]>(initial.tasks);
   const [settings, setSettings] = useState<Settings>(initial.settings);
+  const [archivedCount, setArchivedCount] = useState(initial.archived_count ?? 0);
   const [today, setToday] = useState(() => todayISO());
   const [taskEditor, setTaskEditor] = useState<TaskEditorTarget | null>(null);
   const [spaceEditor, setSpaceEditor] = useState<SpaceEditorTarget | null>(null);
@@ -74,10 +82,12 @@ export function AppProvider({ initial, children }: { initial: AppData; children:
   const toastId = useRef(0);
   const refreshSeq = useRef(0);
 
-  const toast = useCallback((text: string, kind: Toast["kind"] = "info") => {
+  const toast = useCallback((text: string, kind: Toast["kind"] = "info", action?: Toast["action"]) => {
     const id = ++toastId.current;
-    setToasts((t) => [...t, { id, text, kind }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4200);
+    const close = () => setToasts((t) => t.filter((x) => x.id !== id));
+    const withClose = action && { label: action.label, run: () => (close(), action.run()) };
+    setToasts((t) => [...t, { id, text, kind, action: withClose }]);
+    setTimeout(close, action ? 8000 : 4200);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -88,6 +98,7 @@ export function AppProvider({ initial, children }: { initial: AppData; children:
       setSpaces(sortSpaces(data.spaces));
       setTasks(data.tasks);
       setSettings(data.settings);
+      setArchivedCount(data.archived_count ?? 0);
     } catch {
       /* keep the current state */
     }
@@ -159,12 +170,23 @@ export function AppProvider({ initial, children }: { initial: AppData; children:
       setTasks((prev) => prev.filter((t) => t.id !== id));
       try {
         await api(`/api/tasks/${id}`, { method: "DELETE" });
+        toast("המשימה הועברה לסל המחזור", "info", {
+          label: "ביטול",
+          run: async () => {
+            try {
+              await api("/api/trash", { method: "POST", body: JSON.stringify({ action: "restore", ids: [id] }) });
+              await refresh();
+            } catch (e) {
+              toast((e as Error).message, "error");
+            }
+          },
+        });
       } catch (e) {
         setTasks(before);
         toast((e as Error).message, "error");
       }
     },
-    [tasks, toast],
+    [tasks, toast, refresh],
   );
 
   const createSpace = useCallback<AppCtx["createSpace"]>(
@@ -227,6 +249,7 @@ export function AppProvider({ initial, children }: { initial: AppData; children:
       spaces,
       tasks,
       settings,
+      archivedCount,
       today,
       refresh,
       createTask,
@@ -249,6 +272,7 @@ export function AppProvider({ initial, children }: { initial: AppData; children:
       spaces,
       tasks,
       settings,
+      archivedCount,
       today,
       refresh,
       createTask,

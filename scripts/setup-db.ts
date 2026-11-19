@@ -40,6 +40,7 @@ const SCHEMA = [
    )`,
   `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recurrence text CHECK (recurrence IN ('daily','weekly','monthly','yearly'))`,
   `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS subtasks jsonb NOT NULL DEFAULT '[]'::jsonb`,
+  `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at timestamptz`,
   `CREATE INDEX IF NOT EXISTS tasks_space_idx ON tasks(space_id)`,
   `CREATE INDEX IF NOT EXISTS tasks_due_idx ON tasks(due_date)`,
   `CREATE TABLE IF NOT EXISTS settings (

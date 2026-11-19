@@ -1,5 +1,6 @@
 import { addDays, todayISO, weekdayNames, weekday } from "../dates";
 import * as repo from "../repo";
+import { markKeyRejected } from "./status";
 import type { AgentScope, ChatTurn, Space } from "../types";
 import {
   TOOL_DEFS,
@@ -35,7 +36,7 @@ const MODEL = process.env.OPENAI_MODEL || "gpt-6-luna";
 /* ------------------------------------------------------------------ */
 
 function systemPrompt(ctx: ToolCtx): string {
-  const days = Array.from({ length: 15 }, (_, i) => {
+  const days = Array.from({ length: 9 }, (_, i) => {
     const d = addDays(ctx.today, i);
     return `${d} (יום ${weekdayNames[weekday(d)]}${i === 0 ? ", היום" : i === 1 ? ", מחר" : ""})`;
   }).join("\n");
@@ -56,14 +57,15 @@ ${days}
 - עדיפות: נמוכה=low, בינונית=medium, גבוהה=high, דחוף=urgent.
 - סטטוס: חדשה=new, בעבודה=in_progress, בהשהייה=on_hold, הושלמה=done.
 - "באיחור" = תאריך יעד לפני היום ולא הושלמה.
-- משימה חוזרת ("כל חודש", "כל שבוע") נוצרת עם recurrence וחייבת תאריך יעד. כשמסמנים אותה כהושלמה נוצרת אוטומטית המופע הבא שלה.
+- משימה חוזרת ("כל חודש", "כל שבוע") נוצרת עם recurrence וחייבת תאריך יעד. כשמסמנים אותה כהושלמה נוצר אוטומטית המופע הבא שלה.
+- תת-משימות הן שלבים בתוך משימה. כשמבקשים לפרק משימה לשלבים, הצע 3-6 שלבים קצרים ומעשיים והוסף אותם עם add_subtasks.
 - תאריכים אתה מעביר לכלים תמיד בפורמט YYYY-MM-DD. "מחר", "ביום חמישי", "בעוד שבוע" - חשב מהתאריך של היום. "עד ה-10" = ה-10 הקרוב בחודש (החודש הנוכחי אם עוד לא עבר, אחרת הבא).
 
 כללי עבודה:
 1. אתה פועל רק על סביבת העבודה הנוכחית, דרך הכלים. לעולם אל תמציא משימות, מזהים או תוצאות. אם לא קראת - קרא.
 2. לשאלות על מצב, חשיבות, עדיפויות או סיכום - השתמש ב-summarize_tasks או read_tasks, והמלץ על בסיס הנתונים האמיתיים.
 3. לפעולות על קבוצת משימות ("כל מה שבאיחור", "כל המשימות") - העדף filter על פני רשימת מזהים. לפני עדכון או מחיקה של משימות ספציפיות לפי שם - קרא אותן קודם כדי לקבל מזהים.
-4. בקשה להוסיף כמה משימות בבת אחת - קרא ל-add_tasks פעם אחת עם כל המשימות. כשאין עדיפות מפורשת, בחר בינונית; "דחוף"/"חשוב מאוד" מצדיקים דחוף/גבוהה.
+4. בקשה להוסיף כמה משימות בבת אחת - קרא ל-add_tasks פעם אחת עם כל המשימות. כשאין עדיפות מפורשת, בחר בינונית; "דחוף"/"חשוב מאוד" מצדיקים דחוף/גבוהה. אם המשתמש מדביק טקסט חופשי (הודעה, מייל, סיכום פגישה) ומבקש משימות ממנו - חלץ משימות ברורות עם תאריכים אם הוזכרו.
 5. אישור: המערכת מבקשת אישור מהמשתמש אוטומטית (כפתורי אישור/ביטול) לפני כל מחיקה ולפני פעולה על יותר מ-3 משימות. אל תשאל "בטוח?" בטקסט - פשוט קרא לכלי. אם הכלי יחזיר שהפעולה בוצעה - דווח עליה.
 6. אם כלי החזיר שגיאה - תקן את הקריאה ונסה שוב, או הסבר למשתמש בקצרה מה חסר.
 7. אחרי כל פעולה ענה בעברית קצרה (עד 2-3 משפטים או רשימה קצרה) מה עשית, עם מספרים. בלי מזהי משימות, בלי JSON, בלי טבלאות, בלי הקדמות מיותרות.
@@ -99,6 +101,7 @@ async function callModel(body: Record<string, unknown>): Promise<ResponsesResult
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     console.error("OpenAI error", res.status, detail.slice(0, 500));
+    if (res.status === 401 || res.status === 403) await markKeyRejected();
     throw new Error(`openai_${res.status}`);
   }
   const json = (await res.json()) as ResponsesResult;
@@ -143,22 +146,21 @@ export async function buildCtx(scope: AgentScope): Promise<ToolCtx | null> {
   return { scopeSpaces, allScope: scope.type === "all", today: todayISO() };
 }
 
-interface Step {
-  input: unknown;
-  previous_response_id?: string;
-}
+/** The whole exchange is carried in `input` on every call (store: false), so nothing is kept on OpenAI's side. */
+type Input = unknown[];
 
-async function* loop(ctx: ToolCtx, scope: AgentScope, first: Step, changedBefore: boolean): AsyncGenerator<AgentEvent> {
+async function* loop(ctx: ToolCtx, scope: AgentScope, first: Input, changedBefore: boolean): AsyncGenerator<AgentEvent> {
   const instructions = systemPrompt(ctx);
-  let step = first;
+  let input = first;
   let changed = changedBefore;
 
   for (let i = 0; i < MAX_STEPS; i++) {
     const resp = await callModel({
       instructions,
       tools: TOOL_DEFS,
-      input: step.input,
-      previous_response_id: step.previous_response_id,
+      input,
+      store: false,
+      include: ["reasoning.encrypted_content"],
       reasoning: { effort: "low" },
       max_output_tokens: 4000,
     });
@@ -198,7 +200,7 @@ async function* loop(ctx: ToolCtx, scope: AgentScope, first: Step, changedBefore
       const pendingId = await repo.savePending({
         scope,
         op: prepared.op,
-        response_id: resp.id,
+        input: [...input, ...resp.output],
         call_id: call.call_id,
         extra,
         changed,
@@ -221,10 +223,12 @@ async function* loop(ctx: ToolCtx, scope: AgentScope, first: Step, changedBefore
       }
     }
 
-    step = {
-      previous_response_id: resp.id,
-      input: [{ type: "function_call_output", call_id: call.call_id, output: JSON.stringify(output) }, ...extra],
-    };
+    input = [
+      ...input,
+      ...resp.output,
+      { type: "function_call_output", call_id: call.call_id, output: JSON.stringify(output) },
+      ...extra,
+    ];
   }
 
   yield { type: "message", text: changed ? "ביצעתי את השינויים, אבל הפעולה התארכה. כדאי לבדוק את התוצאה." : "הפעולה התארכה מדי. נסו לנסח אחרת." };
@@ -240,7 +244,7 @@ export async function* runChat(messages: ChatTurn[], scope: AgentScope): AsyncGe
       return;
     }
     const input = messages.slice(-20).map((m) => ({ role: m.role, content: m.content }));
-    yield* loop(ctx, scope, { input }, false);
+    yield* loop(ctx, scope, input, false);
   } catch (e) {
     console.error(e);
     yield { type: "error", message: friendlyError(e) };
@@ -252,12 +256,12 @@ export async function* runResume(pendingId: string, approve: boolean): AsyncGene
     const payload = (await repo.claimPending(pendingId)) as {
       scope: AgentScope;
       op: Operation;
-      response_id: string;
+      input?: Input;
       call_id: string;
       extra: unknown[];
       changed: boolean;
     } | null;
-    if (!payload) {
+    if (!payload || !Array.isArray(payload.input)) {
       yield { type: "error", message: "הבקשה לאישור פגה או כבר טופלה. אפשר לבקש שוב." };
       return;
     }
@@ -277,13 +281,11 @@ export async function* runResume(pendingId: string, approve: boolean): AsyncGene
     yield* loop(
       ctx,
       payload.scope,
-      {
-        previous_response_id: payload.response_id,
-        input: [
-          { type: "function_call_output", call_id: payload.call_id, output: JSON.stringify(output) },
-          ...(payload.extra ?? []),
-        ],
-      },
+      [
+        ...payload.input,
+        { type: "function_call_output", call_id: payload.call_id, output: JSON.stringify(output) },
+        ...(payload.extra ?? []),
+      ],
       changed,
     );
   } catch (e) {

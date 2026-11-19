@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runChat } from "@/lib/agent/run";
+import { agentAvailable } from "@/lib/agent/status";
 import { ndjson } from "@/lib/agent/stream";
 import { takeAgentQuota } from "@/lib/repo";
 import { isUUID } from "@/lib/validate";
@@ -34,6 +35,9 @@ export async function POST(req: Request) {
   else if (s?.type === "all") scope = { type: "all" };
   else return NextResponse.json({ error: "חסרה בחירת סביבת עבודה" }, { status: 400 });
 
+  if (!(await agentAvailable())) {
+    return NextResponse.json({ error: "הסוכן כבוי כרגע (אין מפתח OpenAI תקף)." }, { status: 503 });
+  }
   if (!(await takeAgentQuota(Number(process.env.AGENT_HOURLY_LIMIT) || 60))) {
     return NextResponse.json({ error: "הגעתם למגבלת השימוש בסוכן לשעה האחרונה. נסו שוב בעוד קצת." }, { status: 429 });
   }

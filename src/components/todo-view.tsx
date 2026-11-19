@@ -35,8 +35,7 @@ function Row({ task, today }: { task: Task; today: string }) {
 }
 
 export function TodoView({ space, tasks }: { space: Space; tasks: Task[] }) {
-  const { today, createTask } = useApp();
-  const [title, setTitle] = useState("");
+  const { today } = useApp();
   const [showDone, setShowDone] = useState(false);
 
   const groups = useMemo(
@@ -52,39 +51,11 @@ export function TodoView({ space, tasks }: { space: Space; tasks: Task[] }) {
     [tasks],
   );
 
-  async function quickAdd() {
-    const t = title.trim();
-    if (!t) return;
-    setTitle("");
-    await createTask({ space_id: space.id, title: t });
-  }
-
   return (
     <div className="todo">
-      <form
-        className="quick-add"
-        onSubmit={(e) => {
-          e.preventDefault();
-          quickAdd();
-        }}
-      >
-        <Plus size={18} />
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="הוסיפו משימה מהירה ולחצו Enter…"
-          aria-label="משימה מהירה"
-          maxLength={300}
-        />
-        {title.trim() && (
-          <button type="submit" className="btn btn-primary btn-sm">
-            הוספה
-          </button>
-        )}
-      </form>
 
       {groups.length === 0 && done.length === 0 && (
-        <EmptyState icon={<ListChecks size={28} />} title="אין עדיין משימות במרחב הזה" hint="הוסיפו משימה ראשונה בשורה למעלה או בכפתור ״משימה חדשה״." />
+        <EmptyState icon={<ListChecks size={28} />} title="אין עדיין משימות במרחב הזה" hint="הוסיפו משימה ראשונה בשורה המהירה למעלה או בכפתור ״משימה חדשה״." />
       )}
       {groups.length === 0 && done.length > 0 && (
         <EmptyState icon={<ListChecks size={28} />} title="הכל הושלם!" hint="אין משימות פתוחות במרחב הזה." />

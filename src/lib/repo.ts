@@ -47,8 +47,8 @@ export async function listSpaces(): Promise<Space[]> {
 export async function listTasks(spaceIds?: string[]): Promise<Task[]> {
   if (spaceIds && spaceIds.length === 0) return [];
   const rows = spaceIds
-    ? await query<Row>(`SELECT ${TASK_COLS} FROM tasks WHERE space_id = ANY($1::uuid[]) ORDER BY created_at`, [spaceIds])
-    : await query<Row>(`SELECT ${TASK_COLS} FROM tasks ORDER BY created_at`);
+    ? await query<Row>(`SELECT ${TASK_COLS} FROM tasks WHERE deleted_at IS NULL AND space_id = ANY($1::uuid[]) ORDER BY created_at`, [spaceIds])
+    : await query<Row>(`SELECT ${TASK_COLS} FROM tasks WHERE deleted_at IS NULL ORDER BY created_at`);
   return rows.map(mapTask);
 }
 
@@ -66,9 +66,30 @@ export async function setDashboardSpaces(ids: string[] | null): Promise<void> {
   );
 }
 
+/** Completed tasks older than this are "archived": kept in the DB but not loaded into the app by default. */
+export const ARCHIVE_AFTER_DAYS = 30;
+const ARCHIVED = `status = 'done' AND completed_at < now() - interval '${ARCHIVE_AFTER_DAYS} days'`;
+/** Tasks in the trash stay in the DB for this long, then the daily job removes them for good. */
+export const TRASH_DAYS = 30;
+
+export async function listActiveTasks(): Promise<Task[]> {
+  const rows = await query<Row>(`SELECT ${TASK_COLS} FROM tasks WHERE deleted_at IS NULL AND NOT (${ARCHIVED}) ORDER BY created_at`);
+  return rows.map(mapTask);
+}
+
+export async function listArchivedTasks(): Promise<Task[]> {
+  const rows = await query<Row>(`SELECT ${TASK_COLS} FROM tasks WHERE deleted_at IS NULL AND ${ARCHIVED} ORDER BY completed_at DESC LIMIT 1000`);
+  return rows.map(mapTask);
+}
+
 export async function getAllData(): Promise<AppData> {
-  const [spaces, tasks, settings] = await Promise.all([listSpaces(), listTasks(), getSettings()]);
-  return { spaces, tasks, settings };
+  const [spaces, tasks, settings, archived] = await Promise.all([
+    listSpaces(),
+    listActiveTasks(),
+    getSettings(),
+    query<Row>(`SELECT count(*)::int AS n FROM tasks WHERE deleted_at IS NULL AND ${ARCHIVED}`),
+  ]);
+  return { spaces, tasks, settings, archived_count: Number(archived[0]?.n ?? 0) };
 }
 
 /* ---------------- spaces ---------------- */
@@ -138,7 +159,7 @@ export async function updateTasks(ids: string[], patch: Partial<TaskInput>): Pro
   // tasks that are about to become done (to spawn the next occurrence of recurring ones)
   const becomingDone =
     patch.status === "done"
-      ? (await query<Row>(`SELECT ${TASK_COLS} FROM tasks WHERE id = ANY($1::uuid[]) AND status <> 'done' AND recurrence IS NOT NULL`, [ids])).map(mapTask)
+      ? (await query<Row>(`SELECT ${TASK_COLS} FROM tasks WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL AND status <> 'done' AND recurrence IS NOT NULL`, [ids])).map(mapTask)
       : [];
   const sets: string[] = [];
   const params: unknown[] = [ids];
@@ -162,12 +183,12 @@ export async function updateTasks(ids: string[], patch: Partial<TaskInput>): Pro
     );
   }
   if (sets.length === 0) {
-    const rows = await query<Row>(`SELECT ${TASK_COLS} FROM tasks WHERE id = ANY($1::uuid[])`, [ids]);
+    const rows = await query<Row>(`SELECT ${TASK_COLS} FROM tasks WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL`, [ids]);
     return { tasks: rows.map(mapTask), spawned: [] };
   }
   sets.push(`updated_at = now()`);
   const rows = await query<Row>(
-    `UPDATE tasks SET ${sets.join(", ")} WHERE id = ANY($1::uuid[]) RETURNING ${TASK_COLS}`,
+    `UPDATE tasks SET ${sets.join(", ")} WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL RETURNING ${TASK_COLS}`,
     params,
   );
   const spawned: Task[] = [];
@@ -195,9 +216,46 @@ export async function updateTask(id: string, patch: Partial<TaskInput>): Promise
   return { task: r.tasks[0] ?? null, spawned: r.spawned };
 }
 
+/** Moves tasks to the trash (soft delete). They can be restored until the trash is purged. */
 export async function deleteTasks(ids: string[]): Promise<number> {
   if (ids.length === 0) return 0;
-  const rows = await query<Row>(`DELETE FROM tasks WHERE id = ANY($1::uuid[]) RETURNING id`, [ids]);
+  const rows = await query<Row>(
+    `UPDATE tasks SET deleted_at = now() WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL RETURNING id`,
+    [ids],
+  );
+  return rows.length;
+}
+
+export type TrashedTask = Task & { deleted_at: string };
+
+export async function listTrash(): Promise<TrashedTask[]> {
+  const rows = await query<Row>(
+    `SELECT ${TASK_COLS}, deleted_at FROM tasks WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC LIMIT 500`,
+  );
+  return rows.map((r) => ({ ...mapTask(r), deleted_at: iso(r.deleted_at) as string }));
+}
+
+export async function restoreTasks(ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const rows = await query<Row>(
+    `UPDATE tasks SET deleted_at = NULL WHERE id = ANY($1::uuid[]) AND deleted_at IS NOT NULL RETURNING id`,
+    [ids],
+  );
+  return rows.length;
+}
+
+/** Permanently removes tasks that are already in the trash: the given ones, or all of them. */
+export async function purgeTrash(ids?: string[]): Promise<number> {
+  const rows = ids
+    ? await query<Row>(`DELETE FROM tasks WHERE deleted_at IS NOT NULL AND id = ANY($1::uuid[]) RETURNING id`, [ids])
+    : await query<Row>(`DELETE FROM tasks WHERE deleted_at IS NOT NULL RETURNING id`);
+  return rows.length;
+}
+
+export async function purgeOldTrash(): Promise<number> {
+  const rows = await query<Row>(
+    `DELETE FROM tasks WHERE deleted_at < now() - interval '${TRASH_DAYS} days' RETURNING id`,
+  );
   return rows.length;
 }
 
@@ -263,11 +321,14 @@ export async function listPushSubs(): Promise<PushSub[]> {
 /** Records one agent request; returns false when the hourly limit is exceeded. */
 export async function takeAgentQuota(limitPerHour: number): Promise<boolean> {
   const rows = await query<Row>(
-    `SELECT count(*)::int AS n FROM agent_usage WHERE kind = 'request' AND created_at > now() - interval '1 hour'`,
+    `INSERT INTO agent_usage (kind)
+     SELECT 'request'
+     WHERE (SELECT count(*) FROM agent_usage WHERE kind = 'request' AND created_at > now() - interval '1 hour') < $1
+     RETURNING id`,
+    [limitPerHour],
   );
-  if (Number(rows[0]?.n ?? 0) >= limitPerHour) return false;
-  await query(`INSERT INTO agent_usage DEFAULT VALUES`);
-  await query(`DELETE FROM agent_usage WHERE created_at < now() - interval '400 days'`);
+  if (rows.length === 0) return false;
+  if (Math.random() < 0.02) await query(`DELETE FROM agent_usage WHERE created_at < now() - interval '400 days'`);
   return true;
 }
 
@@ -283,18 +344,52 @@ export interface UsageStats {
 
 /** Usage since the start of the current month (Israel time) and today. */
 export async function getUsage(): Promise<{ month: UsageStats; today: UsageStats }> {
-  const q = async (since: string): Promise<UsageStats> => {
+  const q = async (unit: "month" | "day"): Promise<UsageStats> => {
     const rows = await query<Row>(
       `SELECT count(*) FILTER (WHERE kind = 'request')::int AS requests,
               COALESCE(sum(input_tokens), 0)::bigint AS input_tokens,
               COALESCE(sum(output_tokens), 0)::bigint AS output_tokens
-       FROM agent_usage WHERE created_at >= $1::timestamptz`,
-      [since],
+       FROM agent_usage
+       WHERE created_at >= date_trunc($1, now() AT TIME ZONE 'Asia/Jerusalem') AT TIME ZONE 'Asia/Jerusalem'`,
+      [unit],
     );
     const r = rows[0] ?? {};
     return { requests: Number(r.requests ?? 0), input_tokens: Number(r.input_tokens ?? 0), output_tokens: Number(r.output_tokens ?? 0) };
   };
-  const today = todayISO();
-  const tz = "T00:00:00+03:00"; // close enough for a usage counter
-  return { month: await q(today.slice(0, 7) + "-01" + tz), today: await q(today + tz) };
+  const [month, today] = await Promise.all([q("month"), q("day")]);
+  return { month, today };
+}
+
+/* ---------------- login throttling (stored in the settings table) ---------------- */
+
+const LOGIN_MAX_FAILURES = 5;
+const LOGIN_WINDOW_SECONDS = 15 * 60;
+
+/** True when this address already failed too many times in the current window. */
+export async function loginBlocked(ip: string): Promise<boolean> {
+  const rows = await query<Row>(
+    `SELECT 1 FROM settings
+     WHERE key = $1 AND (value->>'n')::int >= $2 AND (value->>'t')::float > extract(epoch from now()) - $3`,
+    [`login:${ip}`, LOGIN_MAX_FAILURES, LOGIN_WINDOW_SECONDS],
+  );
+  return rows.length > 0;
+}
+
+export async function recordLoginFailure(ip: string): Promise<void> {
+  await query(
+    `INSERT INTO settings (key, value) VALUES ($1, jsonb_build_object('n', 1, 't', extract(epoch from now())))
+     ON CONFLICT (key) DO UPDATE SET value = CASE
+       WHEN (settings.value->>'t')::float < extract(epoch from now()) - $2
+         THEN jsonb_build_object('n', 1, 't', extract(epoch from now()))
+       ELSE jsonb_build_object('n', (settings.value->>'n')::int + 1, 't', settings.value->'t')
+     END`,
+    [`login:${ip}`, LOGIN_WINDOW_SECONDS],
+  );
+  if (Math.random() < 0.1) {
+    await query(`DELETE FROM settings WHERE key LIKE 'login:%' AND (value->>'t')::float < extract(epoch from now()) - 86400`);
+  }
+}
+
+export async function clearLoginFailures(ip: string): Promise<void> {
+  await query(`DELETE FROM settings WHERE key = $1`, [`login:${ip}`]);
 }

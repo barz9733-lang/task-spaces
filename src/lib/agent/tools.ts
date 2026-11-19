@@ -1,7 +1,7 @@
 import { PRIORITY_BY_VALUE, PRIORITY_VALUES, RECURRENCE_VALUES, STATUS_BY_VALUE, STATUS_VALUES } from "../constants";
 import { addDays, diffDays, formatShort, isISODate, isoToLocalDate, weekStart } from "../dates";
 import * as repo from "../repo";
-import type { Priority, Recurrence, Space, Status, Task, TaskInput } from "../types";
+import type { Priority, Recurrence, Space, Status, Subtask, Task, TaskInput } from "../types";
 
 /* ------------------------------------------------------------------ */
 /* Tool definitions (Responses API function tools)                    */
@@ -77,8 +77,9 @@ export const TOOL_DEFS = [
               status: nullableEnum(STATUS_VALUES, "null = new"),
               due_date: nullable({ type: "string", description: "YYYY-MM-DD, or null for no due date" }),
               recurrence: nullableEnum(RECURRENCE_VALUES, "repeats every day/week/month/year; null = does not repeat. Needs a due_date."),
+              subtasks: nullable({ type: "array", items: { type: "string" }, description: "Checklist steps inside the task; null = none" }),
             },
-            required: ["title", "space", "description", "priority", "status", "due_date", "recurrence"],
+            required: ["title", "space", "description", "priority", "status", "due_date", "recurrence", "subtasks"],
             additionalProperties: false,
           },
         },
@@ -108,6 +109,11 @@ export const TOOL_DEFS = [
             due_date: nullable({ type: "string", description: "New due date YYYY-MM-DD for all selected tasks" }),
             clear_due_date: nullable({ type: "boolean", description: "true = remove the due date" }),
             recurrence: nullableEnum([...RECURRENCE_VALUES, "none"], "set how the task repeats; 'none' = stop repeating; null = unchanged"),
+            add_subtasks: nullable({
+              type: "array",
+              items: { type: "string" },
+              description: "Append these checklist steps to each selected task (use it to break a task into steps)",
+            }),
             shift_due_days: nullable({
               type: "integer",
               description:
@@ -115,7 +121,7 @@ export const TOOL_DEFS = [
             }),
             space: nullable({ type: "string", description: "Move the tasks to another space (by name)" }),
           },
-          required: ["title", "description", "status", "priority", "due_date", "clear_due_date", "recurrence", "shift_due_days", "space"],
+          required: ["title", "description", "status", "priority", "due_date", "clear_due_date", "recurrence", "add_subtasks", "shift_due_days", "space"],
           additionalProperties: false,
         },
       },
@@ -127,7 +133,7 @@ export const TOOL_DEFS = [
     type: "function",
     name: "delete_tasks",
     description:
-      "Permanently delete tasks. Select with task_ids OR a filter (the other null). The user is always asked to confirm before anything is deleted.",
+      "Delete tasks: they move to the trash, where the user can restore them for 30 days. Select with task_ids OR a filter (the other null). The user is always asked to confirm before anything is deleted.",
     strict: true,
     parameters: {
       type: "object",
@@ -225,6 +231,16 @@ function normRecurrence(v: unknown): Recurrence | null {
   return HE_RECURRENCE[s] ?? null;
 }
 
+const MAX_SUBTASKS = 50;
+function toSubtasks(v: unknown): Subtask[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((x) => (typeof x === "string" ? x.trim().slice(0, 200) : ""))
+    .filter(Boolean)
+    .slice(0, MAX_SUBTASKS)
+    .map((text) => ({ id: crypto.randomUUID(), text, done: false }));
+}
+
 const norm = (s: string) => s.replace(/["'׳״\s]/g, "").toLowerCase();
 
 function findSpace(name: unknown, ctx: ToolCtx): Space | null {
@@ -248,7 +264,7 @@ function taskView(t: Task, spaceName: Map<string, string>, today: string) {
     status: t.status,
     due_date: t.due_date,
     ...(t.recurrence ? { repeats: t.recurrence } : {}),
-    ...(t.subtasks.length ? { subtasks_done: `${t.subtasks.filter((s) => s.done).length}/${t.subtasks.length}` } : {}),
+    ...(t.subtasks.length ? { subtasks: t.subtasks.slice(0, 12).map((s) => (s.done ? "[v] " : "[ ] ") + s.text) } : {}),
     ...(t.due_date && t.status !== "done" && t.due_date < today ? { overdue: true } : {}),
   };
 }
@@ -345,6 +361,7 @@ function describePatch(c: Json, ctx: ToolCtx, spaceTarget?: Space | null): strin
   if (typeof c.shift_due_days === "number" && c.shift_due_days !== 0)
     parts.push(`הזזת תאריך היעד ב-${Math.abs(c.shift_due_days)} ימים ${c.shift_due_days > 0 ? "קדימה" : "אחורה"}`);
   if (c.recurrence) parts.push(c.recurrence === "none" ? "ביטול חזרתיות" : "הגדרת חזרתיות");
+  if (Array.isArray(c.add_subtasks) && c.add_subtasks.length) parts.push(`הוספת ${c.add_subtasks.length} תת-משימות`);
   if (c.title) parts.push("שינוי כותרת");
   if (typeof c.description === "string" && c.description) parts.push("שינוי תיאור");
   if (spaceTarget) parts.push(`העברה למרחב "${spaceTarget.name}"`);
@@ -381,6 +398,7 @@ async function prepareAdd(args: Json, ctx: ToolCtx): Promise<Prepared> {
       status: normStatus(raw.status) ?? "new",
       due_date: due,
       recurrence: due ? normRecurrence(raw.recurrence) : null,
+      subtasks: toSubtasks(raw.subtasks),
     });
   }
   const sn = spaceNames(ctx);
@@ -433,7 +451,8 @@ async function prepareUpdate(args: Json, ctx: ToolCtx): Promise<Prepared> {
     if (!target) throw new ToolError(`המרחב "${String(c.space)}" לא נמצא. מרחבים קיימים: ${ctx.scopeSpaces.map((s) => s.name).join(", ")}`);
     base.space_id = target.id;
   }
-  if (!Object.keys(base).length && fixedDue === undefined && !shift)
+  const newSubs = toSubtasks(c.add_subtasks);
+  if (!Object.keys(base).length && fixedDue === undefined && !shift && !newSubs.length)
     throw new ToolError("לא צוין שינוי כלשהו ב-changes.");
 
   const all = await scopeTasks(ctx);
@@ -448,6 +467,10 @@ async function prepareUpdate(args: Json, ctx: ToolCtx): Promise<Prepared> {
     let newDue: string | null | undefined = fixedDue;
     if (newDue === undefined && shift && t.due_date) newDue = addDays(t.due_date, shift);
     if (newDue !== undefined && newDue !== t.due_date) patch.due_date = newDue;
+    if (newSubs.length && t.subtasks.length < MAX_SUBTASKS) {
+      // fresh ids per task so the same step added to several tasks stays independent
+      patch.subtasks = [...t.subtasks, ...newSubs.map((s) => ({ ...s, id: crypto.randomUUID() }))].slice(0, MAX_SUBTASKS);
+    }
     if (Object.keys(patch).length) updates.push({ id: t.id, title: t.title, patch });
   }
   const desc = describePatch({ ...c, status: base.status, priority: base.priority }, ctx, target);
@@ -473,7 +496,7 @@ async function prepareDelete(args: Json, ctx: ToolCtx): Promise<Prepared> {
       kind: "delete",
       ids: selected.map((t) => t.id),
       titles: selected.map((t) => t.title),
-      summary: `למחוק ${selected.length} משימות לצמיתות`,
+      summary: `להעביר ${selected.length} משימות לסל המחזור`,
     },
   };
 }

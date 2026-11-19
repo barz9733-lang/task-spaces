@@ -40,6 +40,8 @@ export interface AppData {
   spaces: Space[];
   tasks: Task[];
   settings: Settings;
+  /** completed long ago; not in `tasks`, loaded on demand */
+  archived_count: number;
 }
 
 export type TaskInput = {

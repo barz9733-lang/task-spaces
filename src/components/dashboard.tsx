@@ -7,6 +7,7 @@ import { PRIORITY_BY_VALUE } from "@/lib/constants";
 import { formatLong, isoToLocalDate, weekStart } from "@/lib/dates";
 import type { Space, Task } from "@/lib/types";
 import { useApp } from "./app-context";
+import { QuickAdd } from "./quick-add";
 import { VIEW_ICONS } from "./space-modal";
 import { Checkbox, DuePill, EmptyState, PriorityTag, SpaceChip, byPriorityThenDue } from "./ui";
 
@@ -152,6 +153,8 @@ export function Dashboard() {
           <p className="muted">{formatLong(today)}</p>
         </div>
       </div>
+
+      <QuickAdd spaces={spaces} />
 
       <div className="picker" role="group" aria-label="בחירת מרחבים להצגה בדשבורד">
         <span className="picker-label">מציג מרחבים:</span>

@@ -9,7 +9,8 @@
     "db:setup": "tsx --env-file=.env.local scripts/setup-db.ts",
     "db:seed": "tsx --env-file=.env.local scripts/setup-db.ts --seed",
     "db:reset": "tsx --env-file=.env.local scripts/setup-db.ts --seed --reset",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

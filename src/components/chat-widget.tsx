@@ -65,6 +65,7 @@ function Rich({ text }: { text: string }) {
 }
 
 type Usage = { requests: number; input_tokens: number; output_tokens: number };
+const reqLabel = (n: number) => (n === 1 ? "בקשה אחת" : `${n} בקשות`);
 const fmtTokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2)}M` : n >= 1000 ? `${Math.round(n / 1000)}K` : String(n));
 
 const SUGGESTIONS_ALL = [
@@ -497,7 +498,7 @@ export function ChatWidget() {
                 className="chat-usage"
                 title={`קלט ${usage.month.input_tokens.toLocaleString("he-IL")} · פלט ${usage.month.output_tokens.toLocaleString("he-IL")} (החודש)`}
               >
-                החודש: {usage.month.requests} בקשות · {fmtTokens(usage.month.input_tokens + usage.month.output_tokens)} טוקנים · היום: {usage.today.requests} בקשות
+                החודש: {reqLabel(usage.month.requests)} · {fmtTokens(usage.month.input_tokens + usage.month.output_tokens)} טוקנים · היום: {reqLabel(usage.today.requests)}
               </span>
             )}
           </div>

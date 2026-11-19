@@ -4,7 +4,10 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { CheckSquare, LayoutDashboard, LogOut, Moon, Plus, Sun } from "lucide-react";
+import { DataButton } from "./data-menu";
 import { NotificationsButton } from "./notifications";
+import { OfflineBar } from "./offline";
+import { SearchButton } from "./search";
 import { AppProvider, useApp } from "./app-context";
 import { ChatWidget } from "./chat-widget";
 import { SpaceModal } from "./space-modal";
@@ -40,6 +43,13 @@ function TopNav({ showLogout }: { showLogout: boolean }) {
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
+    try {
+      // the offline copies contain the tasks; do not leave them behind after signing out
+      for (const key of await caches.keys()) if (!key.startsWith("static-")) await caches.delete(key);
+      localStorage.removeItem("pages-cached-at");
+    } catch {
+      /* ignore */
+    }
     router.replace("/login");
     router.refresh();
   }
@@ -81,7 +91,9 @@ function TopNav({ showLogout }: { showLogout: boolean }) {
         </nav>
 
         <div className="topnav-actions">
+          <SearchButton />
           <NotificationsButton />
+          <DataButton />
           <ThemeToggle />
           {showLogout && (
             <button className="icon-btn" onClick={logout} aria-label="יציאה" title="יציאה">
@@ -101,20 +113,37 @@ function Toasts() {
       {toasts.map((t) => (
         <div key={t.id} className={`toast toast-${t.kind}`}>
           {t.text}
+          {t.action && (
+            <button className="toast-action" onClick={t.action.run}>
+              {t.action.label}
+            </button>
+          )}
         </div>
       ))}
     </div>
   );
 }
 
-export function AppShell({ initial, showLogout, children }: { initial: AppData; showLogout: boolean; children: ReactNode }) {
+export function AppShell({
+  initial,
+  showLogout,
+  agent,
+  children,
+}: {
+  initial: AppData;
+  showLogout: boolean;
+  /** false when there is no working OpenAI key: the chat button is not shown at all */
+  agent: boolean;
+  children: ReactNode;
+}) {
   return (
     <AppProvider initial={initial}>
       <TopNav showLogout={showLogout} />
+      <OfflineBar />
       <main>{children}</main>
       <TaskModal />
       <SpaceModal />
-      <ChatWidget />
+      {agent && <ChatWidget />}
       <Toasts />
     </AppProvider>
   );

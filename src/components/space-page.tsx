@@ -8,6 +8,7 @@ import type { ViewType } from "@/lib/types";
 import { useApp } from "./app-context";
 import { CalendarView } from "./calendar-view";
 import { KanbanView } from "./kanban-view";
+import { QuickAdd } from "./quick-add";
 import { VIEW_ICONS } from "./space-modal";
 import { TodoView } from "./todo-view";
 import { EmptyState, Segmented } from "./ui";
@@ -38,7 +39,7 @@ export function SpacePage({ id }: { id: string }) {
   const overdue = spaceTasks.filter((t) => t.status !== "done" && t.due_date && t.due_date < today).length;
 
   return (
-    <div className="page" style={{ ["--space" as string]: space.color }}>
+    <div className={`page ${space.view === "todo" ? "is-todo" : ""}`} style={{ ["--space" as string]: space.color }}>
       <div className="page-head space-head">
         <div className="space-title">
           <i className="space-dot" />
@@ -71,6 +72,8 @@ export function SpacePage({ id }: { id: string }) {
           </button>
         </div>
       </div>
+
+      <QuickAdd key={space.id} spaceId={space.id} />
 
       {space.view === "kanban" && <KanbanView space={space} tasks={spaceTasks} />}
       {space.view === "todo" && <TodoView space={space} tasks={spaceTasks} />}
